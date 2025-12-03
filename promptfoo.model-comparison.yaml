@@ -1,14 +1,38 @@
 ---
-# DeepSeek R1 Testing Configuration
-# Test Ollama DeepSeek R1 model performance
+# Model Comparison Configuration
+# Compare Azure GPT-4o-mini vs Gemini 2.0 Flash vs Ollama DeepSeek R1
 
-description: "DeepSeek R1 Model Testing"
+description: "Model Comparison - Azure vs Gemini vs Ollama (Azure VM)"
 
-# Use only DeepSeek R1 for testing
+# Providers for comparison
 providers:
-  # Ollama DeepSeek R1 (Local/Free)
+  # Provider 1: Azure GPT-4o-mini
   - id: file://promptfoo/providers/chat_target.py
-    label: "Ollama DeepSeek R1"
+    label: "Azure GPT-4o-mini"
+    config:
+      endpoint: /chat
+      method: POST
+      defaultFileId: file_1764684418450_vxo6z6s0o
+      defaultEntityId: test1
+      defaultK: 4
+      defaultModel: azure-gpt4o-mini
+      defaultTemperature: 0.7
+
+  # Provider 2: Gemini 2.0 Flash (Free)
+  - id: file://promptfoo/providers/chat_target.py
+    label: "Gemini 2.0 Flash (Free)"
+    config:
+      endpoint: /chat
+      method: POST
+      defaultFileId: file_1764684418450_vxo6z6s0o
+      defaultEntityId: test1
+      defaultK: 4
+      defaultModel: gemini-2.0-flash-exp
+      defaultTemperature: 0.7
+
+  # Provider 3: Ollama DeepSeek R1 (Azure VM)
+  - id: file://promptfoo/providers/chat_target.py
+    label: "Ollama DeepSeek R1 (Azure VM)"
     config:
       endpoint: /chat
       method: POST
@@ -216,13 +240,16 @@ outputPath: ./promptfoo-output/model-comparison.html
 
 # Metadata
 metadata:
-  testType: "single-model-testing"
+  testType: "model-comparison"
   models:
-    - "Ollama DeepSeek R1 (Local/Free)"
+    - "Azure GPT-4o-mini (Paid)"
+    - "Gemini 2.0 Flash (Free)"
+    - "Ollama DeepSeek R1 (Azure VM)"
   dimensions:
     - "quality"
     - "performance"
     - "safety"
     - "style"
     - "capabilities"
-  recommendation: "Testing DeepSeek R1 for production use"
+    - "cost"
+  recommendation: "Compare models to select the best for production"
