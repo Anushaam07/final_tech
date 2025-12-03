@@ -507,8 +507,14 @@ async def generate_ollama_response(prompt: str, temperature: float) -> str:
                 "num_predict": 1000,
             }
         )
-        # Ollama returns dict with 'response' or similar
-        resp_text = response.get("response") if isinstance(response, dict) else str(response)
+
+        # Extract ONLY the response text from Ollama's full response object
+        # Ollama returns: {'response': 'text', 'context': [...], 'model': '...', etc.}
+        # We only want the 'response' field
+        if isinstance(response, dict):
+            resp_text = response.get("response", "")
+        else:
+            resp_text = str(response)
 
         # DeepSeek R1 specific: Extract final answer after thinking tags
         # DeepSeek R1 may wrap thinking in <think>...</think> tags
