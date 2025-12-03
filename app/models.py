@@ -68,3 +68,11 @@ class ChatResponse(BaseModel):
 class SimpleChatResponse(BaseModel):
     """Simplified response with only the answer text - no sources or metadata"""
     answer: str
+
+
+class ChatResponseWithMetrics(BaseModel):
+    """Chat response with token usage and cost metrics"""
+    answer: str
+    model_used: str
+    usage: Optional[dict] = None  # {"prompt_tokens": int, "completion_tokens": int, "total_tokens": int}
+    estimated_cost: Optional[float] = None  # USD

@@ -1494,7 +1494,7 @@ import google.generativeai as genai
 import ollama
 
 from app.config import logger, vector_store
-from app.models import ChatRequest, ChatResponse, SourceDocument, SimpleChatResponse
+from app.models import ChatRequest, ChatResponse, SourceDocument, SimpleChatResponse, ChatResponseWithMetrics
 from app.services.vector_store.async_pg_vector import AsyncPgVector
 
 router = APIRouter()
@@ -1790,6 +1790,195 @@ async def chat_with_documents(request: Request, body: ChatRequest):
         raise
     except Exception as e:
         logger.exception("Unexpected error in chat endpoint")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"An unexpected error occurred: {str(e)}"
+        )
+
+
+# ----------------------- Token & Cost Tracking Helpers -----------------------
+
+def calculate_cost(model_name: str, prompt_tokens: int, completion_tokens: int) -> float:
+    """
+    Calculate estimated cost in USD based on model pricing.
+    Prices as of 2025 (update regularly):
+    - Azure GPT-4o-mini: $0.15/1M input, $0.60/1M output
+    - Gemini 2.0 Flash: Free tier (RPM limited)
+    - Ollama: Free (local)
+    """
+    costs = {
+        "azure-gpt4o-mini": {"input": 0.15 / 1_000_000, "output": 0.60 / 1_000_000},
+        "gemini-2.0-flash": {"input": 0.0, "output": 0.0},  # Free
+        "gemini-2.5-flash": {"input": 0.0, "output": 0.0},  # Free
+        "ollama": {"input": 0.0, "output": 0.0},  # Local
+    }
+
+    model_key = model_name.lower()
+    for key in costs:
+        if key in model_key:
+            pricing = costs[key]
+            return (prompt_tokens * pricing["input"]) + (completion_tokens * pricing["output"])
+
+    return 0.0  # Unknown model
+
+
+async def generate_azure_response_with_metrics(messages: list, temperature: float) -> tuple[str, dict]:
+    """Generate Azure response and return (answer, usage_dict)"""
+    try:
+        client = get_azure_client()
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=messages,
+            temperature=temperature,
+            max_tokens=1000
+        )
+        answer = response.choices[0].message.content
+        usage = {
+            "prompt_tokens": response.usage.prompt_tokens,
+            "completion_tokens": response.usage.completion_tokens,
+            "total_tokens": response.usage.total_tokens
+        }
+        return redact_sensitive_data(answer), usage
+    except Exception as e:
+        logger.error(f"Azure OpenAI error: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Personal information cannot be exposed according to policy."
+        )
+
+
+async def generate_gemini_response_with_metrics(prompt: str, temperature: float, model_name: str) -> tuple[str, dict]:
+    """Generate Gemini response and return (answer, usage_dict)"""
+    try:
+        model = get_gemini_client(model_name)
+        generation_config = {"temperature": temperature, "max_output_tokens": 1000}
+        response = model.generate_content(prompt, generation_config=generation_config)
+        answer = response.text
+
+        # Gemini usage metadata
+        usage = {
+            "prompt_tokens": getattr(response.usage_metadata, "prompt_token_count", 0),
+            "completion_tokens": getattr(response.usage_metadata, "candidates_token_count", 0),
+            "total_tokens": getattr(response.usage_metadata, "total_token_count", 0)
+        }
+        return redact_sensitive_data(answer), usage
+    except Exception as e:
+        logger.error(f"Gemini error: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Personal information cannot be exposed according to policy."
+        )
+
+
+async def generate_ollama_response_with_metrics(prompt: str, temperature: float) -> tuple[str, dict]:
+    """Generate Ollama response and return (answer, usage_dict)"""
+    try:
+        ollama_host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+        ollama_model = os.getenv("OLLAMA_MODEL", "deepseek-r1:latest")
+        client = ollama.Client(host=ollama_host)
+        response = client.generate(
+            model=ollama_model,
+            prompt=prompt,
+            options={"temperature": temperature, "num_predict": 1000}
+        )
+
+        # Extract response text
+        try:
+            resp_text = response['response']
+        except (TypeError, KeyError):
+            resp_text = getattr(response, 'response', str(response))
+
+        # DeepSeek R1 specific: Extract final answer after thinking tags
+        if isinstance(resp_text, str):
+            if "</think>" in resp_text:
+                parts = resp_text.split("</think>")
+                resp_text = parts[-1].strip() if len(parts) > 1 else resp_text
+            resp_text = resp_text.replace("<think>", "").replace("</think>", "")
+
+        # Extract usage if available
+        usage = {
+            "prompt_tokens": response.get('prompt_eval_count', 0),
+            "completion_tokens": response.get('eval_count', 0),
+            "total_tokens": response.get('prompt_eval_count', 0) + response.get('eval_count', 0)
+        }
+
+        return redact_sensitive_data(resp_text), usage
+    except Exception as e:
+        logger.error(f"Ollama error: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Personal information cannot be exposed according to policy."
+        )
+
+
+# ----------------------- Chat Endpoint with Metrics -----------------------
+@router.post("/chat-metrics", response_model=ChatResponseWithMetrics)
+async def chat_with_documents_metrics(request: Request, body: ChatRequest):
+    """
+    Chat endpoint that returns token usage and cost metrics.
+    Use this endpoint for model comparison and cost tracking.
+    """
+    try:
+        # Block queries that explicitly ask for secrets
+        if contains_sensitive_query(body.query):
+            raise HTTPException(
+                status_code=400,
+                detail="This request cannot be completed due to policy restrictions."
+            )
+
+        # Retrieve and sanitize documents
+        logger.info(f"Retrieving documents for query: {body.query[:80]}...")
+        documents = await retrieve_relevant_documents(body.query, body.file_id, body.k, request)
+        if not documents:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No relevant documents found for the query"
+            )
+
+        context = format_sources_for_context(documents)
+        logger.info(f"Retrieved {len(documents)} relevant documents (sanitized)")
+
+        # Generate response using selected model WITH METRICS
+        usage = None
+        estimated_cost = None
+
+        if body.model and body.model.lower().startswith("azure"):
+            messages = create_chat_messages(body.query, context)
+            answer, usage = await generate_azure_response_with_metrics(messages, body.temperature)
+            model_used = "Azure GPT-4o-mini"
+            estimated_cost = calculate_cost(model_used, usage["prompt_tokens"], usage["completion_tokens"])
+
+        elif body.model and body.model.lower().startswith("gemini"):
+            prompt = create_rag_prompt(body.query, context)
+            answer, usage = await generate_gemini_response_with_metrics(prompt, body.temperature, body.model)
+            model_used = f"Google Gemini ({body.model})"
+            estimated_cost = calculate_cost(model_used, usage["prompt_tokens"], usage["completion_tokens"])
+
+        elif body.model and body.model.lower().startswith("ollama"):
+            prompt = create_rag_prompt(body.query, context)
+            answer, usage = await generate_ollama_response_with_metrics(prompt, body.temperature)
+            model_used = f"Ollama ({os.getenv('OLLAMA_MODEL', 'deepseek-r1:latest')})"
+            estimated_cost = calculate_cost(model_used, usage["prompt_tokens"], usage["completion_tokens"])
+
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Unsupported model: {body.model}"
+            )
+
+        logger.info(f"Generated response using {model_used} - Tokens: {usage['total_tokens']}, Cost: ${estimated_cost:.6f}")
+
+        return ChatResponseWithMetrics(
+            answer=answer,
+            model_used=model_used,
+            usage=usage,
+            estimated_cost=estimated_cost
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Unexpected error in chat-metrics endpoint")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"An unexpected error occurred: {str(e)}"

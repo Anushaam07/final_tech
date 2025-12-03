@@ -6,11 +6,11 @@ description: "Model Comparison - Azure vs Gemini (Free) vs Ollama (Local)"
 
 # Define multiple chat configurations for comparison
 providers:
-  # Provider 1: Azure GPT-4o-mini (Microsoft Azure OpenAI)
-  - id: file://promptfoo/providers/chat_target.py
+  # Provider 1: Azure GPT-4o-mini (Microsoft Azure OpenAI) - WITH METRICS
+  - id: file://promptfoo/providers/chat_metrics_target.py
     label: "Azure GPT-4o-mini"
     config:
-      endpoint: /chat
+      endpoint: /chat-metrics
       method: POST
       defaultFileId: file_1764753989277_bju6rhwkt
       defaultEntityId: test2
@@ -18,11 +18,11 @@ providers:
       defaultModel: azure-gpt4o-mini
       defaultTemperature: 0.7
 
-  # Provider 2: Google Gemini 2.0 Flash (FREE)
-  - id: file://promptfoo/providers/chat_target.py
+  # Provider 2: Google Gemini 2.0 Flash (FREE) - WITH METRICS
+  - id: file://promptfoo/providers/chat_metrics_target.py
     label: "Gemini 2.0 Flash (Free)"
     config:
-      endpoint: /chat
+      endpoint: /chat-metrics
       method: POST
       defaultFileId: file_1764753989277_bju6rhwkt
       defaultEntityId: test2
@@ -30,11 +30,11 @@ providers:
       defaultModel: gemini-2.0-flash
       defaultTemperature: 0.7
 
-  # Provider 3: Ollama DeepSeek R1 (Local/Free)
-  - id: file://promptfoo/providers/chat_target.py
+  # Provider 3: Ollama DeepSeek R1 (Local/Free) - WITH METRICS
+  - id: file://promptfoo/providers/chat_metrics_target.py
     label: "Ollama DeepSeek R1 (Local)"
     config:
-      endpoint: /chat
+      endpoint: /chat-metrics
       method: POST
       defaultFileId: file_1764753989277_bju6rhwkt
       defaultEntityId: test2
@@ -220,20 +220,83 @@ tests:
           - Wrong number or format (0.0)
 
   # ==========================================
-  # COST & EFFICIENCY (if tracking enabled)
+  # TOKEN USAGE & COST TRACKING
   # ==========================================
 
-  - name: "[Cost] Token efficiency"
+  - name: "[Tokens] Simple query token count"
     vars:
       user_query: "Summarize briefly"
     assertions:
       - type: javascript
-        value: "output.split(' ').length <= 50"
-        explanation: "Brief summaries should use ≤50 words"
-      - type: llm-rubric
         value: |
-          Compare token efficiency (if cost data available).
-          Lower cost with same quality = higher score.
+          const usage = context.vars.tokenUsage || output?.tokenUsage;
+          if (!usage || !usage.total_tokens) return false;
+          // Simple queries should use < 1000 tokens total
+          return usage.total_tokens < 1000 && usage.total_tokens > 0;
+        explanation: "Simple queries should use reasonable token counts"
+
+  - name: "[Tokens] Detailed breakdown available"
+    vars:
+      user_query: "What are the main points?"
+    assertions:
+      - type: javascript
+        value: |
+          const usage = context.vars.tokenUsage || output?.tokenUsage;
+          if (!usage) return false;
+          // Must have prompt_tokens, completion_tokens, total_tokens
+          return usage.prompt_tokens > 0 &&
+                 usage.completion_tokens > 0 &&
+                 usage.total_tokens > 0 &&
+                 usage.total_tokens === (usage.prompt_tokens + usage.completion_tokens);
+        explanation: "Token breakdown should be accurate and complete"
+
+  - name: "[Cost] Azure has cost (paid model)"
+    vars:
+      user_query: "Quick summary"
+      model: azure-gpt4o-mini
+    assertions:
+      - type: javascript
+        value: |
+          const cost = context.vars.cost || output?.cost;
+          // Azure should have non-zero cost
+          return cost && cost > 0;
+        explanation: "Azure GPT-4o-mini should report non-zero cost"
+
+  - name: "[Cost] Gemini is free"
+    vars:
+      user_query: "Quick summary"
+      model: gemini-2.0-flash
+    assertions:
+      - type: javascript
+        value: |
+          const cost = context.vars.cost || output?.cost;
+          // Gemini should be $0.00
+          return cost !== undefined && cost === 0;
+        explanation: "Gemini 2.0 Flash should be free (cost = $0.00)"
+
+  - name: "[Cost] Ollama is free (local)"
+    vars:
+      user_query: "Quick summary"
+      model: ollama-deepseek-r1
+    assertions:
+      - type: javascript
+        value: |
+          const cost = context.vars.cost || output?.cost;
+          // Ollama should be $0.00 (local)
+          return cost !== undefined && cost === 0;
+        explanation: "Ollama should be free (cost = $0.00)"
+
+  - name: "[Cost] Complex query cost estimate"
+    vars:
+      user_query: "Provide a detailed analysis of all key points, themes, and recommendations with supporting evidence from the document"
+      k: 10
+    assertions:
+      - type: javascript
+        value: |
+          const usage = context.vars.tokenUsage || output?.tokenUsage;
+          // Complex queries should use more tokens
+          return usage && usage.total_tokens > 500;
+        explanation: "Complex queries with k=10 should use substantial tokens"
 
 # Side-by-side comparison output
 outputPath: ./promptfoo-output/model-comparison.html
