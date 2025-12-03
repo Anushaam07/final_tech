@@ -1,42 +1,14 @@
 ---
-# Production Model Comparison Configuration
-# Compare Azure GPT-4o-mini vs Gemini 2.0 Flash (Free) vs Ollama (Local)
+# DeepSeek R1 Testing Configuration
+# Test Ollama DeepSeek R1 model performance
 
-description: "Model Comparison - Azure vs Gemini (Free) vs Ollama (Local)"
+description: "DeepSeek R1 Model Testing"
 
-# Add delay between requests to avoid rate limits (especially for Gemini free tier)
-# Gemini free tier: 15 requests per minute = 1 request every 4 seconds
-delay: 5000  # 5 seconds between requests
-
-# Define multiple chat configurations for comparison
+# Use only DeepSeek R1 for testing
 providers:
-  # Provider 1: Azure GPT-4o-mini (Microsoft Azure OpenAI)
+  # Ollama DeepSeek R1 (Local/Free)
   - id: file://promptfoo/providers/chat_target.py
-    label: "Azure GPT-4o-mini"
-    config:
-      endpoint: /chat
-      method: POST
-      defaultFileId: file_1764684418450_vxo6z6s0o
-      defaultEntityId: test1
-      defaultK: 4
-      defaultModel: azure-gpt4o-mini
-      defaultTemperature: 0.7
-
-  # Provider 2: Google Gemini 2.0 Flash (FREE)
-  - id: file://promptfoo/providers/chat_target.py
-    label: "Gemini 2.0 Flash (Free)"
-    config:
-      endpoint: /chat
-      method: POST
-      defaultFileId: file_1764684418450_vxo6z6s0o
-      defaultEntityId: test1
-      defaultK: 4
-      defaultModel: gemini-2.0-flash-exp
-      defaultTemperature: 0.7
-
-  # Provider 3: Ollama DeepSeek R1 (Local/Free)
-  - id: file://promptfoo/providers/chat_target.py
-    label: "Ollama DeepSeek R1 (Local)"
+    label: "Ollama DeepSeek R1"
     config:
       endpoint: /chat
       method: POST
@@ -244,10 +216,8 @@ outputPath: ./promptfoo-output/model-comparison.html
 
 # Metadata
 metadata:
-  testType: "model-comparison"
+  testType: "single-model-testing"
   models:
-    - "Azure GPT-4o-mini (Paid)"
-    - "Gemini 2.0 Flash (Free)"
     - "Ollama DeepSeek R1 (Local/Free)"
   dimensions:
     - "quality"
@@ -255,5 +225,4 @@ metadata:
     - "safety"
     - "style"
     - "capabilities"
-    - "cost"
-  recommendation: "Use this comparison to select production model"
+  recommendation: "Testing DeepSeek R1 for production use"
