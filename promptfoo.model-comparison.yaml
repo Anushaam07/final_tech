@@ -4,6 +4,10 @@
 
 description: "Model Comparison - Azure vs Gemini (Free) vs Ollama (Local)"
 
+# Add delay between requests to avoid rate limits (especially for Gemini free tier)
+# Gemini free tier: 15 requests per minute = 1 request every 4 seconds
+delay: 5000  # 5 seconds between requests
+
 # Define multiple chat configurations for comparison
 providers:
   # Provider 1: Azure GPT-4o-mini (Microsoft Azure OpenAI)
@@ -30,16 +34,16 @@ providers:
       defaultModel: gemini-2.0-flash-exp
       defaultTemperature: 0.7
 
-  # Provider 3: Ollama DeepSeek R1 (Local/Free)
+  # Provider 3: Ollama Llama 3.2 (Local/Free)
   - id: file://promptfoo/providers/chat_target.py
-    label: "Ollama DeepSeek R1 (Local)"
+    label: "Ollama Llama 3.2 (Local)"
     config:
       endpoint: /chat
       method: POST
       defaultFileId: file_1764684418450_vxo6z6s0o
       defaultEntityId: test1
       defaultK: 4
-      defaultModel: ollama-deepseek-r1
+      defaultModel: ollama-llama3.2
       defaultTemperature: 0.7
 
 prompts:
@@ -244,7 +248,7 @@ metadata:
   models:
     - "Azure GPT-4o-mini (Paid)"
     - "Gemini 2.0 Flash (Free)"
-    - "Ollama DeepSeek R1 (Local/Free)"
+    - "Ollama Llama 3.2 (Local/Free)"
   dimensions:
     - "quality"
     - "performance"
