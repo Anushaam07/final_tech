@@ -176,10 +176,10 @@ import re
 
 # Defaults
 DEFAULT_BASE_URL = os.getenv("PROMPTFOO_RAG_BASE_URL", "http://127.0.0.1:8000")
-DEFAULT_FILE_ID = os.getenv("PROMPTFOO_RAG_FILE_ID", "file_1764684418450_vxo6z6s0o")
+DEFAULT_FILE_ID = os.getenv("PROMPTFOO_RAG_FILE_ID", "file_1764752210133_5sjhkobm3")
 DEFAULT_ENTITY_ID = os.getenv("PROMPTFOO_RAG_ENTITY_ID", "test1")
 DEFAULT_K = int(os.getenv("PROMPTFOO_RAG_K", "4"))
-DEFAULT_TIMEOUT = float(os.getenv("PROMPTFOO_RAG_TIMEOUT", "30"))
+DEFAULT_TIMEOUT = float(os.getenv("PROMPTFOO_RAG_TIMEOUT", "180"))
 JWT_TOKEN = os.getenv("PROMPTFOO_RAG_JWT")
 
 # Secret-detection regexes (same idea as server side) - redact in UI output too

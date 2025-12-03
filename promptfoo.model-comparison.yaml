@@ -1,45 +1,46 @@
 ---
 # Production Model Comparison Configuration
-# Compare Gemini Pro vs Gemini 2.0 Flash vs Azure models side-by-side
+# Compare Azure GPT-4o-mini vs Gemini 2.0 Flash (Free) vs Ollama (Local)
 
-description: "Model Comparison - Gemini vs Azure (Production)"
+description: "Model Comparison - Azure vs Gemini (Free) vs Ollama (Local)"
 
 # Define multiple chat configurations for comparison
 providers:
-  # Provider 1: Current production (Gemini Pro)
-  - id: file://promptfoo/providers/chat_target.py
-    label: "Gemini Pro (Current)"
-    config:
-      endpoint: /chat
-      method: POST
-      defaultFileId: file_1764684418450_vxo6z6s0o
-      defaultEntityId: test1
-      defaultK: 4
-      defaultModel: gemini-2.5-flash
-      defaultTemperature: 0.7
-
-  # Provider 2: Azure GPT-4o-mini (Alternative)
+  # Provider 1: Azure GPT-4o-mini (Microsoft Azure OpenAI)
   - id: file://promptfoo/providers/chat_target.py
     label: "Azure GPT-4o-mini"
     config:
       endpoint: /chat
       method: POST
-      defaultFileId: file_1764684418450_vxo6z6s0o
-      defaultEntityId: test1
+      defaultFileId: file_1764753989277_bju6rhwkt
+      defaultEntityId: test2
       defaultK: 4
       defaultModel: azure-gpt4o-mini
       defaultTemperature: 0.7
 
-  # - id: file://promptfoo/providers/chat_target.py
-  #   label: "deepseek-r1:latest"
-  #   config:
-  #     endpoint: /chat
-  #     method: POST
-  #     defaultFileId: file_1764619963350_khif4cjxn
-  #     defaultEntityId: test1
-  #     defaultK: 4
-  #     defaultModel: deepseek-r1:latest
-  #     defaultTemperature: 0.7
+  # Provider 2: Google Gemini 2.0 Flash (FREE)
+  - id: file://promptfoo/providers/chat_target.py
+    label: "Gemini 2.0 Flash (Free)"
+    config:
+      endpoint: /chat
+      method: POST
+      defaultFileId: file_1764753989277_bju6rhwkt
+      defaultEntityId: test2
+      defaultK: 4
+      defaultModel: gemini-2.0-flash
+      defaultTemperature: 0.7
+
+  # Provider 3: Ollama DeepSeek R1 (Local/Free)
+  - id: file://promptfoo/providers/chat_target.py
+    label: "Ollama DeepSeek R1 (Local)"
+    config:
+      endpoint: /chat
+      method: POST
+      defaultFileId: file_1764753989277_bju6rhwkt
+      defaultEntityId: test2
+      defaultK: 4
+      defaultModel: ollama-deepseek-r1
+      defaultTemperature: 0.7
 
 prompts:
   - "{{user_query}}"
@@ -241,8 +242,9 @@ outputPath: ./promptfoo-output/model-comparison.html
 metadata:
   testType: "model-comparison"
   models:
-    - "Gemini Pro"
-    - "Azure GPT-4o-mini"
+    - "Azure GPT-4o-mini (Paid)"
+    - "Gemini 2.0 Flash (Free)"
+    - "Ollama DeepSeek R1 (Local/Free)"
   dimensions:
     - "quality"
     - "performance"

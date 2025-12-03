@@ -63,3 +63,8 @@ class ChatResponse(BaseModel):
     answer: str
     sources: List[SourceDocument]
     model_used: str
+
+
+class SimpleChatResponse(BaseModel):
+    """Simplified response with only the answer text - no sources or metadata"""
+    answer: str
