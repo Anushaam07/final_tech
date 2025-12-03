@@ -34,16 +34,16 @@ providers:
       defaultModel: gemini-2.0-flash-exp
       defaultTemperature: 0.7
 
-  # Provider 3: Ollama Llama 3.2 (Local/Free)
+  # Provider 3: Ollama DeepSeek R1 (Local/Free)
   - id: file://promptfoo/providers/chat_target.py
-    label: "Ollama Llama 3.2 (Local)"
+    label: "Ollama DeepSeek R1 (Local)"
     config:
       endpoint: /chat
       method: POST
       defaultFileId: file_1764684418450_vxo6z6s0o
       defaultEntityId: test1
       defaultK: 4
-      defaultModel: ollama-llama3.2
+      defaultModel: ollama-deepseek-r1
       defaultTemperature: 0.7
 
 prompts:
@@ -248,7 +248,7 @@ metadata:
   models:
     - "Azure GPT-4o-mini (Paid)"
     - "Gemini 2.0 Flash (Free)"
-    - "Ollama Llama 3.2 (Local/Free)"
+    - "Ollama DeepSeek R1 (Local/Free)"
   dimensions:
     - "quality"
     - "performance"

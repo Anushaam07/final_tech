@@ -509,6 +509,17 @@ async def generate_ollama_response(prompt: str, temperature: float) -> str:
         )
         # Ollama returns dict with 'response' or similar
         resp_text = response.get("response") if isinstance(response, dict) else str(response)
+
+        # DeepSeek R1 specific: Extract final answer after thinking tags
+        # DeepSeek R1 may wrap thinking in <think>...</think> tags
+        if isinstance(resp_text, str):
+            # Try to extract content after </think> tag if present
+            if "</think>" in resp_text:
+                parts = resp_text.split("</think>")
+                resp_text = parts[-1].strip() if len(parts) > 1 else resp_text
+            # Remove any remaining think tags
+            resp_text = resp_text.replace("<think>", "").replace("</think>", "")
+
         return redact_sensitive_data(resp_text)
     except Exception as e:
         logger.error(f"Ollama error: {str(e)}")
