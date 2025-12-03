@@ -7,7 +7,7 @@
 # import ollama
 
 # from app.config import logger, vector_store
-# from app.models import ChatRequest, ChatResponse, SourceDocument
+# from app.models import ChatRequest, ChatResponse, SourceDocument, SimpleChatResponse
 # from app.services.vector_store.async_pg_vector import AsyncPgVector
 
 # router = APIRouter()
@@ -289,7 +289,7 @@ import google.generativeai as genai
 import ollama
 
 from app.config import logger, vector_store
-from app.models import ChatRequest, ChatResponse, SourceDocument
+from app.models import ChatRequest, ChatResponse, SourceDocument, SimpleChatResponse
 from app.services.vector_store.async_pg_vector import AsyncPgVector
 
 router = APIRouter()
@@ -536,7 +536,7 @@ async def generate_ollama_response(prompt: str, temperature: float) -> str:
 
 
 # ----------------------- Chat Endpoint -----------------------
-@router.post("/chat", response_model=ChatResponse)
+@router.post("/chat", response_model=SimpleChatResponse)
 async def chat_with_documents(request: Request, body: ChatRequest):
     try:
         # Block queries that explicitly ask for secrets
@@ -577,21 +577,10 @@ async def chat_with_documents(request: Request, body: ChatRequest):
                 detail=f"Unsupported model: {body.model}"
             )
 
-        # Sanitize sources returned to client (secrets redacted)
-        sources = [
-            SourceDocument(
-                content=redact_sensitive_data(doc.page_content),
-                score=float(score),
-                metadata=doc.metadata
-            )
-            for doc, score in documents
-        ]
-
+        # Return only the answer text - no sources, no metadata, no model info
         logger.info(f"Generated response using {model_used}")
-        return ChatResponse(
-            answer=answer,
-            sources=sources,
-            model_used=model_used
+        return SimpleChatResponse(
+            answer=answer
         )
 
     except HTTPException:
