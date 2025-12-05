@@ -1,0 +1,364 @@
+name: Promptfoo Security & Quality Tests
+
+# Trigger on pull requests and pushes to main branches
+on:
+  pull_request:
+    branches: [ main, master, develop ]
+  push:
+    branches: [ main, master, develop ]
+  # Allow manual trigger
+  workflow_dispatch:
+    inputs:
+      test_suite:
+        description: 'Which test suite to run'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - evaluation
+          - guardrails
+          - redteam
+          - models
+
+jobs:
+  # ==========================================
+  # Job 1: Baseline Evaluation Tests
+  # ==========================================
+  baseline-evaluation:
+    name: Baseline & Performance Tests
+    runs-on: ubuntu-latest
+    if: github.event.inputs.test_suite == 'all' || github.event.inputs.test_suite == 'evaluation' || github.event.inputs.test_suite == ''
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Python dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Install Node dependencies
+        run: |
+          npm ci
+
+      - name: Start PostgreSQL (pgvector)
+        run: |
+          docker compose -f db-compose.yaml up -d
+          sleep 10  # Wait for DB to be ready
+
+      - name: Start RAG API
+        env:
+          VECTOR_DB_TYPE: pgvector
+          POSTGRES_DB: rag_db
+          POSTGRES_USER: rag_user
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          DB_HOST: localhost
+          EMBEDDINGS_PROVIDER: azure
+          RAG_AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
+          RAG_AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
+          AZURE_CHAT_API_KEY: ${{ secrets.AZURE_CHAT_API_KEY }}
+          AZURE_CHAT_ENDPOINT: ${{ secrets.AZURE_CHAT_ENDPOINT }}
+        run: |
+          uvicorn main:app --host 0.0.0.0 --port 8000 &
+          sleep 15  # Wait for API to start
+
+      - name: Upload test document
+        env:
+          PROMPTFOO_RAG_BASE_URL: http://localhost:8000
+        run: |
+          # Upload a test document for evaluation
+          curl -X POST http://localhost:8000/embed \
+            -F "file=@./promptfoo/datasets/sample_document.pdf" \
+            -F "file_id=test_doc_ci" \
+            -F "entity_id=ci_test"
+
+      - name: Run Promptfoo Evaluation Tests
+        env:
+          PROMPTFOO_RAG_BASE_URL: http://localhost:8000
+          PROMPTFOO_RAG_FILE_ID: test_doc_ci
+          PROMPTFOO_RAG_ENTITY_ID: ci_test
+          PROMPTFOO_RAG_K: "4"
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}  # For LLM-rubric grading
+        run: |
+          npx promptfoo@latest eval --config promptfoo.evaluation.yaml --no-cache
+
+      - name: Upload evaluation results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: evaluation-results
+          path: promptfoo-output/evaluation.html
+
+      - name: Check for test failures
+        run: |
+          # Parse results and fail if tests failed
+          if [ -f promptfoo-output/evaluation.json ]; then
+            FAILURES=$(jq '.stats.failures' promptfoo-output/evaluation.json)
+            if [ "$FAILURES" -gt 0 ]; then
+              echo "❌ $FAILURES evaluation tests failed!"
+              exit 1
+            fi
+          fi
+
+  # ==========================================
+  # Job 2: Guardrails Tests (Safety & Quality)
+  # ==========================================
+  guardrails-tests:
+    name: Safety & Quality Guardrails
+    runs-on: ubuntu-latest
+    if: github.event.inputs.test_suite == 'all' || github.event.inputs.test_suite == 'guardrails' || github.event.inputs.test_suite == ''
+
+    strategy:
+      matrix:
+        suite: [guardrails-rag, guardrails-llm]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          npm ci
+
+      - name: Start services
+        env:
+          RAG_AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
+          RAG_AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
+          AZURE_CHAT_API_KEY: ${{ secrets.AZURE_CHAT_API_KEY }}
+          AZURE_CHAT_ENDPOINT: ${{ secrets.AZURE_CHAT_ENDPOINT }}
+        run: |
+          docker compose -f db-compose.yaml up -d
+          sleep 10
+          uvicorn main:app --host 0.0.0.0 --port 8000 &
+          sleep 15
+
+      - name: Run ${{ matrix.suite }} Tests
+        env:
+          PROMPTFOO_RAG_BASE_URL: http://localhost:8000
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          npx promptfoo@latest eval --config promptfoo.${{ matrix.suite }}.yaml --no-cache
+
+      - name: Upload ${{ matrix.suite }} results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.suite }}-results
+          path: promptfoo-output/${{ matrix.suite }}.html
+
+      - name: Check for critical failures
+        run: |
+          if [ -f promptfoo-output/${{ matrix.suite }}.json ]; then
+            FAILURES=$(jq '.stats.failures' promptfoo-output/${{ matrix.suite }}.json)
+            if [ "$FAILURES" -gt 5 ]; then
+              echo "❌ Too many guardrail failures: $FAILURES"
+              exit 1
+            fi
+          fi
+
+  # ==========================================
+  # Job 3: Red Team Security Tests
+  # ==========================================
+  redteam-security:
+    name: Red Team Security Assessment
+    runs-on: ubuntu-latest
+    if: github.event.inputs.test_suite == 'all' || github.event.inputs.test_suite == 'redteam' || github.event.inputs.test_suite == ''
+
+    strategy:
+      matrix:
+        suite: [redteam-rag, redteam-llm, redteam-confidential-data]
+      fail-fast: false  # Continue even if one suite fails
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          npm ci
+
+      - name: Start services
+        env:
+          RAG_AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
+          RAG_AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
+          AZURE_CHAT_API_KEY: ${{ secrets.AZURE_CHAT_API_KEY }}
+          AZURE_CHAT_ENDPOINT: ${{ secrets.AZURE_CHAT_ENDPOINT }}
+        run: |
+          docker compose -f db-compose.yaml up -d
+          sleep 10
+          uvicorn main:app --host 0.0.0.0 --port 8000 &
+          sleep 15
+
+      - name: Run ${{ matrix.suite }} Red Team
+        env:
+          PROMPTFOO_RAG_BASE_URL: http://localhost:8000
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          npx promptfoo@latest redteam run --config promptfoo.${{ matrix.suite }}.yaml --no-cache
+
+      - name: Upload ${{ matrix.suite }} results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.suite }}-results
+          path: promptfoo-output/${{ matrix.suite }}.html
+
+      - name: Check for critical vulnerabilities
+        run: |
+          if [ -f promptfoo-output/${{ matrix.suite }}.json ]; then
+            # Check for critical vulnerabilities
+            CRITICAL=$(jq '[.results[] | select(.score < 0.5)] | length' promptfoo-output/${{ matrix.suite }}.json)
+            echo "Critical vulnerabilities found: $CRITICAL"
+
+            if [ "$CRITICAL" -gt 10 ]; then
+              echo "❌ Too many critical vulnerabilities: $CRITICAL"
+              echo "🚨 BLOCKING DEPLOYMENT - Fix security issues!"
+              exit 1
+            fi
+          fi
+
+  # ==========================================
+  # Job 4: Model Comparison (Optional)
+  # ==========================================
+  model-comparison:
+    name: Model Performance Comparison
+    runs-on: ubuntu-latest
+    if: github.event.inputs.test_suite == 'models' || github.event_name == 'workflow_dispatch'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          npm ci
+
+      - name: Start services
+        env:
+          RAG_AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
+          RAG_AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
+          AZURE_CHAT_API_KEY: ${{ secrets.AZURE_CHAT_API_KEY }}
+          AZURE_CHAT_ENDPOINT: ${{ secrets.AZURE_CHAT_ENDPOINT }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          docker compose -f db-compose.yaml up -d
+          sleep 10
+          uvicorn main:app --host 0.0.0.0 --port 8000 &
+          sleep 15
+
+      - name: Run Model Comparison
+        env:
+          PROMPTFOO_RAG_BASE_URL: http://localhost:8000
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          npx promptfoo@latest eval --config promptfoo.model-comparison.yaml --no-cache
+
+      - name: Upload model comparison results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: model-comparison-results
+          path: promptfoo-output/model-comparison.html
+
+  # ==========================================
+  # Job 5: Generate Summary Report
+  # ==========================================
+  summary-report:
+    name: Generate Test Summary
+    runs-on: ubuntu-latest
+    needs: [baseline-evaluation, guardrails-tests, redteam-security]
+    if: always()
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: all-results
+
+      - name: Generate summary
+        run: |
+          echo "# 🧪 Promptfoo Test Results Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Test Status" >> $GITHUB_STEP_SUMMARY
+          echo "- **Baseline Evaluation**: ${{ needs.baseline-evaluation.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Guardrails Tests**: ${{ needs.guardrails-tests.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Red Team Security**: ${{ needs.redteam-security.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Artifacts" >> $GITHUB_STEP_SUMMARY
+          echo "All test results are available as downloadable artifacts." >> $GITHUB_STEP_SUMMARY
+
+      - name: Comment on PR (if applicable)
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const summary = `
+            ## 🧪 Promptfoo Test Results
+
+            | Test Suite | Status |
+            |------------|--------|
+            | Baseline Evaluation | ${{ needs.baseline-evaluation.result }} |
+            | Guardrails Tests | ${{ needs.guardrails-tests.result }} |
+            | Red Team Security | ${{ needs.redteam-security.result }} |
+
+            📊 Detailed reports are available in the workflow artifacts.
+            `;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: summary
+            });
